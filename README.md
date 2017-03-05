@@ -1,2 +1,2 @@
 # Starfish-Limiter
-A pretty great limiter for Reaper/JS
+A pretty great limiter for Reaper/JS.

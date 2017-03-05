@@ -1,0 +1,245 @@
+desc:Starfish Limiter
+//tags: Jesse
+//author: Jesse
+//License: MIT
+
+slider1:0<-24,40,.0001>Adjustment (dB)
+slider2:-0.3<-3,0,.0001>Ceiling (dB)
+
+@slider
+b.boosterConstructor(slider1);
+limiter4_0.threshold = decibels(slider2);
+limiter4_1.threshold = decibels(slider2);
+peakLimiter0.threshold = decibels(slider2);
+peakLimiter1.threshold = decibels(slider2);
+
+@init
+
+// <variables>
+
+//The initial compressor has no concept of "attack time". Instead,
+//it attacks instantly but then I put a lowpass filter on the gain
+//reduction. That way you know you won't be able to hear artifacts
+//of the initial compressor above the frequency you set here. So
+//this number kind of serves as the attack time. Hopefully that
+//makes sense.
+//
+smoothCompressorMaskFilterFrequency = 20;
+disableFilter=0;
+
+//Kind of self-explanatory, this is the release speed of the
+//initial compressor. I noticed you need exponentially bigger
+//numbers to get a higher release speed, so I define it in
+//terms of 2 raised to the whatever power and then I play with
+//the exponent rather than the number itself.
+//
+smoothCompressorReleaseSpeed=2^7;
+
+//This limiter has a "look-ahead" section which basically looks ahead
+//one cycle of the frequency which you set here. It's kind of like
+//clipping distortion but with a low-pass filter on the nasty
+//artifacts that clipping creates. That's kind of what it ends up
+//sounding like. I call it the "transient catcher" because it swoops
+//in and catches transients but in a way which is relatively pleasing
+//to the ears.
+//
+//That means that if you set this number to a really LOW frequency you
+//will have a really HIGH look-ahead time and you might get weird
+//effects where you can hear the level drop down right before
+//something loud happens.
+//
+transientCatcherCutoffFrequency = 500;
+// </variables>
+
+// <reusable>
+baseq = cos($pi/4);
+sqrt2 = sqrt(2);
+usedMemory=0;
+function decibels(input)(
+  2^(input/6);
+);
+function getArray(size)(
+  i=0;
+  while (i<size)
+  (
+    usedMemory[i]=0;
+    i+=1;
+  );
+  returnMe = usedMemory;
+  usedMemory+=size;
+  returnMe;
+);
+function boosterConstructor(dbDifference)(
+  this.adj=decibels(dbDifference);
+);
+function setLpfCoefficients(sampleRate, frequency, Q, gain) instance (a0 a1 a2 b1 b2)(
+  V = 10^(abs(gain)/20);
+  K = tan($pi*frequency/sampleRate);
+  bigV = gain>=0?V:1;
+  littleV = gain>=0?1:V;
+
+  norm = 1/(1+sqrt(2*littleV)*K+littleV*K*K);
+  a0 = K*K*norm;
+  a1 = 2*a0;
+  a2 = a0;
+  b1 = 2*(K*K-1)*norm;
+  b2 = (1-K/Q+K*K)*norm;
+  0;
+);
+function setHpfCoefficients(sampleRate, frequency, Q, gain) instance (a0 a1 a2 b1 b2)(
+  V = 10^(abs(gain)/20);
+  K = tan($pi*frequency/sampleRate);
+  bigV = gain>=0?V:1;
+  littleV = gain>=0?1:V;
+
+  norm = 1 / (1 + K / Q + K * K);
+  a0 = 1 * norm;
+  a1 = -2 * a0;
+  a2 = a0;
+  b1 = 2 * (K * K - 1) * norm;
+  b2 = (1 - K / Q + K * K) * norm;
+  0;
+);
+function applyFilter(input) instance (x0 x1 x2 y0 y1 y2 a0 a1 a2 b1 b2)(
+  x0 = input;
+  y0 = a0*x0 + a1*x1 + a2*x2
+     - b1*y1 - b2*y2;
+  x2 = x1; x1 = x0;
+  y2 = y1; y1 = y0;
+  y0;
+);
+function midSideEncodeDecode(in0, in1) instance (channel0 channel1)(
+  channel0=in0;
+  channel1=in1;
+  temp = channel0;
+  channel0=(channel0+channel1)/sqrt2;
+  channel1=(temp-channel1)/sqrt2;
+  0;
+);
+function lookAheadLimiterConstructor(frequency)(
+  pdc_bot_ch=0;
+  pdc_top_ch=2;
+  //This is only here for the sake of the user. It starts
+  //with AAA so it comes first alphabetically in the variable
+  //list in the IDE.
+  //
+  AAA_Look_Ahead_ms = 1/transientCatcherCutoffFrequency*1000;
+  lookAheadSamples = ceil(srate/transientCatcherCutoffFrequency);
+  pdc_delay = lookAheadSamples;
+  this.threshold = decibels(-.2);
+  this.lookAheadSamples = lookAheadSamples;
+  this.delayBuffer = getArray(lookAheadSamples);
+  this.maskBuffer = getArray(lookAheadSamples);
+  this.setLpfCoefficients(srate, frequency, baseq, 0);
+);
+function scopeConstructor()(
+  scopeHasBeenConstructed = 1;
+  bSize = srate;
+  buffer = getArray(srate*4);
+  bOffset1 = bSize;
+);
+function booster(input)(
+  this.adj*input;
+);
+function toScope(thing1, thing2)(
+  buffer[bufI] = thing1;
+  buffer[bufI+bOffset1] = thing2;
+  bufI >= bSize-1 ? bufI = 1 : (bufI += 1;);
+);
+function smoothCompressor(releaseSpeed, frequency, threshold) instance (x0 x1 x2 y0 y1 y2)
+(
+  this.mask=1;
+  this.threshold = threshold;
+  this.releaseSpeed = releaseSpeed;
+  this.setLpfCoefficients(srate, frequency, baseq, 0);
+  x0=x1=x2=y0=y1=y2=1;
+  0;
+);
+// </reusable>
+
+// <constructors>
+sideHPF.setHpfCoefficients(srate, 344, baseq, 0);
+peakLimiter0.lookAheadLimiterConstructor(transientCatcherCutoffFrequency);
+peakLimiter1.lookAheadLimiterConstructor(transientCatcherCutoffFrequency);
+limiter4_0.smoothCompressor(smoothCompressorReleaseSpeed, smoothCompressorMaskFilterFrequency, smoothCompressorThreshold);
+limiter4_1.smoothCompressor(smoothCompressorReleaseSpeed, smoothCompressorMaskFilterFrequency, smoothCompressorThreshold);
+scopeConstructor();
+// </constructors>
+
+@sample
+
+// <reusable>
+function smoothCompressor(input) instance (mask threshold filteredMask releaseSpeed)
+(
+  absIn = abs(input);
+  absIn > threshold?mask = min(mask, threshold/absIn);
+  filteredMask = this.applyFilter(mask);
+  disableFilter?filteredMask = mask;
+  input *= filteredMask;
+  mask *= exp(smoothCompressorReleaseSpeed/srate);
+  mask = min(mask, 1);
+  input;
+);
+function lookAheadLimiter(input) instance (delayBuffer maskBuffer writePosition filteredMask readPosition lookAheadSamples threshold)(
+  delayBuffer[writePosition]=input;
+  abs(input)>threshold?(
+    newMask = threshold/abs(input);
+    checkLocation = writePosition;
+    maskBuffer[checkLocation] = newMask; checkLocation -= 1; checkLocation<0?checkLocation+=lookAheadSamples;
+    while(maskBuffer[checkLocation]>newMask)(
+      maskBuffer[checkLocation] = newMask;
+      checkLocation -= 1;
+      checkLocation<0?checkLocation+=lookAheadSamples;
+    )
+  ):(
+    1;
+    maskBuffer[writePosition]=1;
+  );
+  filteredMask = this.applyFilter(maskBuffer[readPosition]);
+  writePosition=(writePosition+1)%lookAheadSamples;
+  readPosition=(writePosition+1)%lookAheadSamples;
+  delayBuffer[readPosition]*filteredMask;
+);
+// </reusable>
+
+// <flow>
+ms.midSideEncodeDecode(spl0, spl1);spl0=ms.channel0;spl1=ms.channel1;
+spl1=sideHPF.applyFilter(spl1);
+ms.midSideEncodeDecode(spl0, spl1);spl0=ms.channel0;spl1=ms.channel1;
+spl0 = b.booster(spl0);
+spl1 = b.booster(spl1);
+spl0 = limiter4_0.smoothCompressor(spl0);
+spl1 = limiter4_1.smoothCompressor(spl1);
+spl0 = peakLimiter0.lookAheadLimiter(spl0);
+spl1 = peakLimiter1.lookAheadLimiter(spl1);
+toScope(spl0, spl1);
+// </flow>
+
+@gfx
+
+//This scope is a highly simplified version of the "Skope" effect by "Stige T."
+function scope()(
+  gfx_mode = 1.0;
+  loopI = 0;
+  loop(bSize,
+    !(loopI % floor(bSize / 10000)) ? (
+    y0 = gfx_h * 1/2 - (buffer[loopI]          * gfx_h * 1/4) + gfx_h * -1/4;
+    y1 = gfx_h * 1/2 - (buffer[loopI+bOffset1] * gfx_h * 1/4) + gfx_h * 1/4;
+    x = loopI * gfx_w / bSize;
+    dis0=floor(buffer[loopI+bOffset2]+.1);
+    dis1=floor(buffer[loopI+bOffset3]+.1);
+    gfx_line(lastx, lasty0, x, y0);
+    gfx_line(lastx, lasty1, x, y1);
+    lasty0 = y0;
+    lasty1 = y1;
+    lastx = x;
+    );
+    loopI += 1;
+  );
+  lastx = 0;
+  gfx_r = 1; gfx_g = 1; gfx_b = 1; gfx_a = 1/2;
+  gfx_line(0, gfx_h * -3/8+gfx_h*5/8, gfx_w,  gfx_h * -3/8+gfx_h*5/8);
+  gfx_line(0, gfx_h * -1/8+gfx_h*5/8, gfx_w,  gfx_h * -1/8+gfx_h*5/8);
+  gfx_line(0, gfx_h *  1/8+gfx_h*5/8, gfx_w,  gfx_h *  1/8+gfx_h*5/8);
+);
+scopeHasBeenConstructed?scope();
