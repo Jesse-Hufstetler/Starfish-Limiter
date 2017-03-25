@@ -5,6 +5,8 @@ desc:Starfish Limiter
 
 slider1:0<-24,40,.0001>Adjustment (dB)
 slider2:-0.3<-3,0,.0001>Ceiling (dB)
+slider3:1<0,1,1{Off,On}>Side HPF (Recommended) (344 Hz)
+slider4:1<0,1,1{Off,On}>Main HPF (Recommended) (5 Hz)
 
 @slider
 b.boosterConstructor(slider1);
@@ -159,6 +161,8 @@ function smoothCompressor(releaseSpeed, frequency, threshold) instance (x0 x1 x2
 
 // <constructors>
 sideHPF.setHpfCoefficients(srate, 344, baseq, 0);
+mainHPF_0.setHpfCoefficients(srate, 5, baseq, 0);
+mainHPF_1.setHpfCoefficients(srate, 5, baseq, 0);
 peakLimiter0.lookAheadLimiterConstructor(transientCatcherCutoffFrequency);
 peakLimiter1.lookAheadLimiterConstructor(transientCatcherCutoffFrequency);
 limiter4_0.smoothCompressor(smoothCompressorReleaseSpeed, smoothCompressorMaskFilterFrequency, smoothCompressorThreshold);
@@ -203,9 +207,15 @@ function lookAheadLimiter(input) instance (delayBuffer maskBuffer writePosition 
 // </reusable>
 
 // <flow>
-ms.midSideEncodeDecode(spl0, spl1);spl0=ms.channel0;spl1=ms.channel1;
-spl1=sideHPF.applyFilter(spl1);
-ms.midSideEncodeDecode(spl0, spl1);spl0=ms.channel0;spl1=ms.channel1;
+slider3?(
+  ms.midSideEncodeDecode(spl0, spl1);spl0=ms.channel0;spl1=ms.channel1;
+  spl1=sideHPF.applyFilter(spl1);
+  ms.midSideEncodeDecode(spl0, spl1);spl0=ms.channel0;spl1=ms.channel1;
+);
+slider4?(
+  spl0=mainHPF_0.applyFilter(spl0);
+  spl1=mainHPF_1.applyFilter(spl1);
+);
 spl0 = b.booster(spl0);
 spl1 = b.booster(spl1);
 spl0 = limiter4_0.smoothCompressor(spl0);
