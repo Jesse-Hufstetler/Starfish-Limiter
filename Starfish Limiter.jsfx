@@ -7,6 +7,10 @@ slider1:0<-24,40,.0001>Adjustment (dB)
 slider2:-0.3<-3,0,.0001>Ceiling (dB)
 slider3:1<0,1,1{Off,On}>Side HPF (Recommended) (344 Hz)
 slider4:1<0,1,1{Off,On}>Main HPF (Recommended) (5 Hz)
+slider5:0<-24,24,.0001>Current RMS Volume (dB)
+slider6:-10.8<-12.8,-8.8,.0001}>2000's Rock
+slider7:-9.2<-11.2,-7.2,.0001}>Dubstep
+slider8:-14.5<-16.5,-12.5 ,.0001}>90's Ballad
 
 @slider
 b.boosterConstructor(slider1);
@@ -157,6 +161,9 @@ function smoothCompressor(releaseSpeed, frequency, threshold) instance (x0 x1 x2
   x0=x1=x2=y0=y1=y2=1;
   0;
 );
+function voltsToDb(input)(
+  log(input)/log(2)*6;
+);
 // </reusable>
 
 // <constructors>
@@ -169,6 +176,14 @@ limiter4_0.smoothCompressor(smoothCompressorReleaseSpeed, smoothCompressorMaskFi
 limiter4_1.smoothCompressor(smoothCompressorReleaseSpeed, smoothCompressorMaskFilterFrequency, smoothCompressorThreshold);
 scopeConstructor();
 // </constructors>
+
+// <rmsStuff>
+rmsMs=3000;
+rmsBufferLength = srate*rmsMs/1000;
+rmsBuffer = getArray(rmsBufferLength);
+rmsSquareSum=0;
+rmsBufferPosition=0;
+// </rmsStuff>
 
 @sample
 
@@ -224,6 +239,17 @@ spl0 = peakLimiter0.lookAheadLimiter(spl0);
 spl1 = peakLimiter1.lookAheadLimiter(spl1);
 toScope(spl0, spl1);
 // </flow>
+
+// <rmsStuff>
+rmsBufferPosition = (rmsBufferPosition+1)%rmsBufferLength;
+rmsOldValue=rmsBuffer[rmsBufferPosition];
+rmsNewValue=sqr((spl0+spl1)/2);
+rmsBuffer[rmsBufferPosition]=rmsNewValue;
+rmsSquareSum = rmsSquareSum+rmsNewValue-rmsOldValue;
+rmsSquareMeanRoot = rmsSquareSum>0?sqrt(rmsSquareSum/rmsBufferLength):0;
+rmsDecibels=rmsSquareSum>0?voltsToDb(rmsSquareMeanRoot):-999999999999999999999999999;
+slider5=slider6=slider7=slider8=rmsDecibels;
+// </rmsStuff>
 
 @gfx
 
